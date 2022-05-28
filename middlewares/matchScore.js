@@ -18,10 +18,9 @@ function list_to_tree(list) {
         map[list[i].id] = i; // initialize the map
         list[i].children = []; // initialize the children
     }
-
     for (i = 0; i < list.length; i++) {
         node = list[i];
-        if (node.parentId !== "0") {
+        if (node.parentId) {
             // if you have dangling branches check that map[node.parentId] exists
             if(list[map[node.parentId]]) {
                 list[map[node.parentId]].children.push(node);
@@ -39,7 +38,7 @@ function add_level_to_tree(list, level) {
     }
     level++;
     for (let i = 0; i <= list.length - 1; i++) {
-        addLevelToList(list[i].children, level);
+        add_level_to_tree(list[i].children, level);
     }
 }
 
@@ -50,11 +49,11 @@ const getSkillNest = async () => {
         });
         if (!skillNest || !skillNestUpdatedAt || updatedSkills.length > 0) {
             const skills = await Skill.findAll({
-                where: { status: "Active" }, // Note: build heirarchy of only active skills
+                where: { status: "Active" }, raw: true // Note: build heirarchy of only active skills
             });
             skillNest = list_to_tree(skills);
             add_level_to_tree(skillNest, 0);
-            skillFlat = flatObj(skillNest);
+            skillFlat = flatObj(skillNest, []);
             skillNestUpdatedAt = new Date();
         }
         return { skills: skillNest, updatedAt: skillNestUpdatedAt };
@@ -69,7 +68,6 @@ const getNodeIds = (list, ids) => {
         ids.push(list[i].id);
         getNodeIds(list[i].children, ids);
     }
-    return ids;
 }
 
 const isChild = (list, id, ids, node) => {
@@ -80,18 +78,13 @@ const isChild = (list, id, ids, node) => {
         isChild(list[i].children, id, ids, node);
     }
     if (node) {
-        ids = getNodeIds(node, []);
-        return ids;
+        getNodeIds(node, ids);
     }
-    return [];
 }
 
 const flatObj = (data, arr) => {
     for (let i = 0; i <= data.length - 1; i++) {
         let children = [...data[i].children];
-
-        delete data[i].children;
-        console.log(data[i]);
         arr.push(data[i]);
         flatObj(children, arr);
     }
@@ -110,13 +103,15 @@ const getParent = (list, id, ids) => {
 }
 
 const containsChildSkill = (skillTree, jobSkillId, profile) => {
-    const childIds = isChild(skillTree, jobSkillId, null, null);
+    let result = false;
+    let childIds =  [];
+    isChild(skillTree, jobSkillId, childIds, null);
     profile.forEach(profileSkill => {
-        if (profileSkill == childIds) {
-            return true;
+        if (childIds.includes(profileSkill)) {
+            result = true;
         }
     });
-    return false;
+    return result;
 }
 
 const calculateSkillScore = async (job, profile, skillCount) => {
@@ -130,11 +125,11 @@ const calculateSkillScore = async (job, profile, skillCount) => {
         } else {
             let parentSkills = getParent(skillFlat, jobSkillId, []);
             let countLevel = 0;
-            let currentSkill = parentSkills.filter(skill => skill.id == jobSkillId);
+            let currentSkill = parentSkills.filter(skill => skill.id == jobSkillId)[0];
             parentSkills = parentSkills.filter(skill => skill.id != jobSkillId);
             profile.forEach(profileSkill => {
                 parentSkills.forEach(parentSkill => {
-                    if(profileSkill.id == parentSkill.id) {
+                    if(profileSkill == parentSkill.id) {
                         if(((parentSkill.level+1)/(currentSkill.level+1)) > countLevel ) {
                             countLevel = (parentSkill.level+1)/(currentSkill.level+1);
                         }
@@ -329,7 +324,7 @@ const processJobProfileScore = async (profile, job, matchScore) => {
             if (distKM < 30) {
                 dPer = 1;
             } else if (distKM < 50) {
-                dPer = 0.75;;
+                dPer = 0.75;
             } else if (distKM < 100) {
                 dPer = 0.5;
             }
